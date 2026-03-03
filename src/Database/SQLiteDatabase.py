@@ -89,9 +89,14 @@ class SQLiteDatabase(IDatabase):
             # MemberRolesHistory
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS MemberRolesHistory (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     history_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    guild_id INTEGER NOT NULL,
                     role_id INTEGER NOT NULL,
                     role_name TEXT NOT NULL,
+                    started_at TIMESTAMP NOT NULL,
+                    ended_at TIMESTAMP,
                     FOREIGN KEY(history_id) REFERENCES MemberHistory(id) ON DELETE CASCADE
                 )
             """)
@@ -123,12 +128,17 @@ class SQLiteDatabase(IDatabase):
             # MemberVoiceStateHistory
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS MemberVoiceStateHistory (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     history_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    guild_id INTEGER NOT NULL,
                     channel_id INTEGER,
                     self_mute BOOLEAN,
                     self_deaf BOOLEAN,
                     self_stream BOOLEAN,
                     self_video BOOLEAN,
+                    started_at TIMESTAMP NOT NULL,
+                    ended_at TIMESTAMP,
                     FOREIGN KEY(history_id) REFERENCES MemberHistory(id) ON DELETE CASCADE
                 )
             """)
@@ -189,7 +199,11 @@ class SQLiteDatabase(IDatabase):
             history_id = mh_row["id"]
             
             # Fetch Roles
-            cursor.execute("SELECT role_id, role_name FROM MemberRolesHistory WHERE history_id = ?", (history_id,))
+            # Fetch active roles for current moment
+            cursor.execute("""
+                SELECT role_id, role_name FROM MemberRolesHistory 
+                WHERE user_id = ? AND guild_id = ? AND ended_at IS NULL
+            """, (user_id, guild_id))
             roles = [dict(r) for r in cursor.fetchall()]
             
             # Fetch Activities
@@ -203,7 +217,10 @@ class SQLiteDatabase(IDatabase):
 
 
             # Fetch Voice State
-            cursor.execute("SELECT * FROM MemberVoiceStateHistory WHERE history_id = ?", (history_id,))
+            cursor.execute("""
+                SELECT channel_id, self_mute, self_deaf, self_stream, self_video FROM MemberVoiceStateHistory 
+                WHERE user_id = ? AND guild_id = ? AND ended_at IS NULL
+            """, (user_id, guild_id))
             voice_row = cursor.fetchone()
             voice_state = dict(voice_row) if voice_row else None
             
@@ -245,7 +262,12 @@ class SQLiteDatabase(IDatabase):
             history_id = mh_row["id"]
             
             # Fetch Roles
-            cursor.execute("SELECT role_id, role_name FROM MemberRolesHistory WHERE history_id = ?", (history_id,))
+            cursor.execute("""
+                SELECT role_id, role_name FROM MemberRolesHistory 
+                WHERE user_id = ? AND guild_id = ? 
+                  AND started_at <= ? 
+                  AND (ended_at IS NULL OR ended_at >= ?)
+            """, (user_id, guild_id, target_time, target_time))
             roles = [dict(r) for r in cursor.fetchall()]
             
             # Fetch Activities
@@ -259,7 +281,12 @@ class SQLiteDatabase(IDatabase):
             activities = [dict(a) for a in cursor.fetchall()]
             
             # Fetch Voice State
-            cursor.execute("SELECT * FROM MemberVoiceStateHistory WHERE history_id = ?", (history_id,))
+            cursor.execute("""
+                SELECT channel_id, self_mute, self_deaf, self_stream, self_video FROM MemberVoiceStateHistory 
+                WHERE user_id = ? AND guild_id = ? 
+                  AND started_at <= ? 
+                  AND (ended_at IS NULL OR ended_at >= ?)
+            """, (user_id, guild_id, target_time, target_time))
             voice_row = cursor.fetchone()
             voice_state = dict(voice_row) if voice_row else None
             
@@ -323,29 +350,7 @@ class SQLiteDatabase(IDatabase):
         if current_data.get("guild_banner_id") != last_data.get("guild_banner_id"):
             return True
 
-        # Compare Roles (List of dicts: role_id, role_name)
-        curr_roles = sorted([r["role_id"] for r in current_data.get("roles", [])])
-        last_roles = sorted([r["role_id"] for r in last_data.get("roles", [])])
-        if curr_roles != last_roles:
-            return True
-            
-        # Compare Voice State
-        curr_voice = current_data.get("voice_state") or {}
-        last_voice = last_data.get("voice_state") or {}
-        # remove id/history_id for comparison and treat None as equal missing
-        def normalize_voice(v_dict):
-            cleaned = {}
-            for k, v in v_dict.items():
-                if k in ["id", "history_id"] or v is None: continue
-                cleaned[k] = 1 if v is True else (0 if v is False else v)
-            return cleaned
-            
-        curr_vs = normalize_voice(curr_voice)
-        last_vs = normalize_voice(last_voice)
-        
-        if curr_vs != last_vs:
-            return True
-            
+        # Removed roles and voice state comparing from _is_state_different, they are decoupled now.
         return False
         
     def _is_activity_state_different(self, current_activities: list, last_activities: list) -> bool:
@@ -482,20 +487,68 @@ class SQLiteDatabase(IDatabase):
             ))
             history_id = cursor.lastrowid
             
-            # Only insert roles & voice states if we created a new snapshot
-            for role in current_data["roles"]:
+        active_history_id = history_id if history_id else (last_data["id"] if last_data else 0)
+        
+        # --- PROCESS ROLES INDEPENDENTLY ---
+        # Get active roles
+        cursor.execute("""
+            SELECT id, role_id FROM MemberRolesHistory
+            WHERE user_id = ? AND guild_id = ? AND ended_at IS NULL
+        """, (member.id, member.guild.id))
+        
+        db_roles_dict = {row["role_id"]: row["id"] for row in cursor.fetchall()}
+        current_role_ids = {r["role_id"] for r in current_data["roles"]}
+        
+        # Ended roles
+        roles_to_end = [db_role_pk for role_id, db_role_pk in db_roles_dict.items() if role_id not in current_role_ids]
+        if roles_to_end:
+            placeholders = ",".join("?" for _ in roles_to_end)
+            cursor.execute(f"""
+                UPDATE MemberRolesHistory SET ended_at = ?
+                WHERE id IN ({placeholders})
+            """, [timestamp] + roles_to_end)
+            
+        # New roles
+        new_roles = [r for r in current_data["roles"] if r["role_id"] not in db_roles_dict]
+        for role in new_roles:
+            cursor.execute("""
+                INSERT INTO MemberRolesHistory (history_id, user_id, guild_id, role_id, role_name, started_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (active_history_id, member.id, member.guild.id, role["role_id"], role["role_name"], timestamp))
+
+        # --- PROCESS VOICE STATE INDEPENDENTLY ---
+        # Normalizing voice data logic matches the old dict structure
+        curr_voice = current_data["voice_state"] or {}
+        last_voice = last_data.get("voice_state") or {} if last_data else {}
+        
+        def normalize_voice(v_dict):
+            cleaned = {}
+            for k, v in v_dict.items():
+                if k in ["channel_id"]: cleaned[k] = v
+                elif k in ["self_mute", "self_deaf", "self_stream", "self_video"]: 
+                    cleaned[k] = 1 if v else 0
+            return cleaned
+            
+        curr_vs = normalize_voice(curr_voice)
+        last_vs = normalize_voice(last_voice)
+
+        if curr_vs != last_vs:
+            # End old session (if any)
+            cursor.execute("""
+                UPDATE MemberVoiceStateHistory SET ended_at = ?
+                WHERE user_id = ? AND guild_id = ? AND ended_at IS NULL
+            """, (timestamp, member.id, member.guild.id))
+            
+            # Start new session if they are in a channel
+            if curr_voice and curr_voice.get("channel_id"):
                 cursor.execute("""
-                    INSERT INTO MemberRolesHistory (history_id, role_id, role_name) VALUES (?, ?, ?)
-                """, (history_id, role["role_id"], role["role_name"]))
-                
-            voice = current_data["voice_state"]
-            if voice:
-                cursor.execute("""
-                    INSERT INTO MemberVoiceStateHistory (history_id, channel_id, self_mute, self_deaf, self_stream, self_video)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO MemberVoiceStateHistory (
+                        history_id, user_id, guild_id, channel_id, self_mute, self_deaf, self_stream, self_video, started_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    history_id, voice.get("channel_id"), voice.get("self_mute"), voice.get("self_deaf"),
-                    voice.get("self_stream"), voice.get("self_video")
+                    active_history_id, member.id, member.guild.id, curr_voice.get("channel_id"), 
+                    curr_voice.get("self_mute"), curr_voice.get("self_deaf"), 
+                    curr_voice.get("self_stream"), curr_voice.get("self_video"), timestamp
                 ))
         
         # Now process Activities Tracking Independently
@@ -507,17 +560,20 @@ class SQLiteDatabase(IDatabase):
             type_str = str(act.get("type") or "")
             details_str = str(act.get("details") or "")
             
+            # Specifically handle Spotify distinct song tracking
+            spotify_id_str = str(act.get("spotify_track_id") or "")
+            
             c_dict = {
                 "name": act.get("name"),
                 "type": act.get("type"),
                 "details": act.get("details"),
-                "clean_key": name_str + type_str + details_str
+                "clean_key": name_str + type_str + details_str + spotify_id_str
             }
             current_acts_cleaned.append(c_dict)
 
         # Get the ongoing activities directly from DB
         cursor.execute("""
-            SELECT id, name, type, details FROM MemberActivityHistory
+            SELECT id, name, type, details, spotify_track_id FROM MemberActivityHistory
             WHERE user_id = ? AND guild_id = ? AND ended_at IS NULL
         """, (member.id, member.guild.id))
         
@@ -526,10 +582,11 @@ class SQLiteDatabase(IDatabase):
             name_str = str(row["name"] if row["name"] is not None else "")
             type_str = str(row["type"] if row["type"] is not None else "")
             details_str = str(row["details"] if row["details"] is not None else "")
+            spotify_id_str = str(row["spotify_track_id"] if row["spotify_track_id"] is not None else "")
             
             ongoing_db_acts.append({
                 "id": row["id"],
-                "clean_key": name_str + type_str + details_str
+                "clean_key": name_str + type_str + details_str + spotify_id_str
             })
         # List of clean_keys currently active in discord
         current_keys = [c["clean_key"] for c in current_acts_cleaned]
@@ -556,7 +613,9 @@ class SQLiteDatabase(IDatabase):
             name_str = str(act.get("name") or "")
             type_str = str(act.get("type") or "")
             details_str = str(act.get("details") or "")
-            clean_key = name_str + type_str + details_str
+            spotify_id_str = str(act.get("spotify_track_id") or "")
+            
+            clean_key = name_str + type_str + details_str + spotify_id_str
             
             if clean_key not in db_keys:
                 new_acts_to_insert.append(act)
@@ -569,7 +628,7 @@ class SQLiteDatabase(IDatabase):
                         spotify_song_name, spotify_artists, spotify_album, spotify_track_id, started_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    history_id if history_id else (last_data["id"] if last_data else 0), 
+                    active_history_id, 
                     member.id, member.guild.id, act.get("name"), act.get("type"), act.get("details"), 
                     act.get("state"), act.get("url"), act.get("start"), act.get("end"),
                     act.get("spotify_song_name"), act.get("spotify_artists"), act.get("spotify_album"), act.get("spotify_track_id"),
