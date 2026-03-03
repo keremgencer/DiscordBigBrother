@@ -1,14 +1,14 @@
-import Logger
 import discord
 from discord import app_commands
 import random
 from Database.IDatabase import IDatabase, DiscordEvent
-from EventProcessor import EventProcessor
+from Event.EventProcessor import EventProcessor
+from Logger.ILogger import ILogger
 
 class EventHandler:
-    def __init__(self, client, db: IDatabase):
+    def __init__(self, client, db: IDatabase, logger: ILogger):
         self.client = client
-        self.logger = Logger.Logger()
+        self.logger = logger
         self.db = db
         self.tree = app_commands.CommandTree(client)
         self.processor = EventProcessor(self.db, self.logger)

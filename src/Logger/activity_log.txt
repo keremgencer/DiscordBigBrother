@@ -1,0 +1,107 @@
+[2026-03-03 23:19:26] 🎮 kerem.0 updated their activities:
+  🔹 Unknown_6: Hang Status
+      - State: chilling:twemoji
+[2026-03-03 23:19:28] 🎮 shoyuuh updated their activities:
+  🔹 Playing: Rainbow Six Siege
+      - Details: RANKED match - Round 2 / 6
+      - Platform: desktop
+      - Large Image: [Hover: None] (https://cdn.discordapp.com/app-assets/445956193924546560/446301881636225042.png)
+[2026-03-03 23:19:28] 🎮 kerem.0 updated their activities:
+  🎵 Listening to Spotify:
+      - Song: Down In A Hole (2022 Remaster)
+      - Artist(s): Alice In Chains
+      - Album: Dirt (2022 Remaster)
+      - Track URL: https://open.spotify.com/track/7FRfYOql61DGDp9VPPe2qA
+      - Duration: 05:38
+      - Started at: 2026-03-03 22:15:36 (UTC)
+      - Gonna end at: 2026-03-03 22:21:14 (UTC)
+  🔹 Unknown_6: Hang Status
+      - State: chilling:twemoji
+[2026-03-03 23:20:08] 🟡 💻 kerem.0 changed their desktop status to 'idle'.
+🎮 kerem.0 updated their activities:
+  🎵 Listening to Spotify:
+      - Song: Down In A Hole (2022 Remaster)
+      - Artist(s): Alice In Chains
+      - Album: Dirt (2022 Remaster)
+      - Track URL: https://open.spotify.com/track/7FRfYOql61DGDp9VPPe2qA
+      - Duration: 05:38
+      - Started at: 2026-03-03 22:15:36 (UTC)
+      - Gonna end at: 2026-03-03 22:21:14 (UTC)
+  🔹 Unknown_6: Hang Status
+      - State: chilling:twemoji
+[2026-03-03 23:20:23] 🟢 💻 kerem.0 changed their desktop status to 'online'.
+🎮 kerem.0 updated their activities:
+  🎵 Listening to Spotify:
+      - Song: Down In A Hole (2022 Remaster)
+      - Artist(s): Alice In Chains
+      - Album: Dirt (2022 Remaster)
+      - Track URL: https://open.spotify.com/track/7FRfYOql61DGDp9VPPe2qA
+      - Duration: 05:38
+      - Started at: 2026-03-03 22:15:36 (UTC)
+      - Gonna end at: 2026-03-03 22:21:14 (UTC)
+  🔹 Unknown_6: Hang Status
+      - State: chilling:twemoji
+[2026-03-03 23:21:14] 🎮 kerem.0 updated their activities:
+  🎵 Listening to Spotify:
+      - Song: Youngest Daughter
+      - Artist(s): Superheaven
+      - Album: Jar
+      - Track URL: https://open.spotify.com/track/3tYxhPqkioZEV5el3DJxLQ
+      - Duration: 04:09
+      - Started at: 2026-03-03 22:21:14 (UTC)
+      - Gonna end at: 2026-03-03 22:25:23 (UTC)
+  🔹 Unknown_6: Hang Status
+      - State: chilling:twemoji
+[2026-03-03 23:21:52] 🎮 kerem.0 updated their activities:
+  🎵 Listening to Spotify:
+      - Song: Youngest Daughter
+      - Artist(s): Superheaven
+      - Album: Jar
+      - Track URL: https://open.spotify.com/track/3tYxhPqkioZEV5el3DJxLQ
+      - Duration: 04:09
+      - Started at: 2026-03-03 22:21:14 (UTC)
+      - Gonna end at: 2026-03-03 22:25:23 (UTC)
+[2026-03-03 23:21:55] 🎮 kerem.0 updated their activities:
+  🔹 Unknown_6: Hang Status
+      - State: chilling:illocons
+  🎵 Listening to Spotify:
+      - Song: Youngest Daughter
+      - Artist(s): Superheaven
+      - Album: Jar
+      - Track URL: https://open.spotify.com/track/3tYxhPqkioZEV5el3DJxLQ
+      - Duration: 04:09
+      - Started at: 2026-03-03 22:21:14 (UTC)
+      - Gonna end at: 2026-03-03 22:25:23 (UTC)
+[2026-03-03 23:23:38] 🎮 kerem.0 updated their activities:
+  🔹 Unknown_6: Hang Status
+      - State: chilling:illocons
+  🎵 Listening to Spotify:
+      - Song: Rotten Apple
+      - Artist(s): Alice In Chains
+      - Album: Jar Of Flies
+      - Track URL: https://open.spotify.com/track/7Fm3NhbAYHvTQUhboim9FB
+      - Duration: 06:58
+      - Started at: 2026-03-03 22:23:38 (UTC)
+      - Gonna end at: 2026-03-03 22:30:37 (UTC)
+[2026-03-03 23:24:21] 🟡 💻 kerem.0 changed their desktop status to 'idle'.
+🎮 kerem.0 updated their activities:
+  🔹 Unknown_6: Hang Status
+      - State: chilling:illocons
+  🎵 Listening to Spotify:
+      - Song: Rotten Apple
+      - Artist(s): Alice In Chains
+      - Album: Jar Of Flies
+      - Track URL: https://open.spotify.com/track/7Fm3NhbAYHvTQUhboim9FB
+      - Duration: 06:58
+      - Started at: 2026-03-03 22:23:38 (UTC)
+      - Gonna end at: 2026-03-03 22:30:37 (UTC)
+[2026-03-03 23:24:35] 🎮 shoyuuh updated their activities:
+  🔹 Playing: Rainbow Six Siege
+      - Details: RANKED match - Round 3 / 6
+      - Platform: desktop
+      - Large Image: [Hover: None] (https://cdn.discordapp.com/app-assets/445956193924546560/446301881636225042.png)
+[2026-03-03 23:27:51] 🎮 shoyuuh updated their activities:
+  🔹 Playing: Rainbow Six Siege
+      - Details: RANKED match - Round 4 / 6 -Match point
+      - Platform: desktop
+      - Large Image: [Hover: None] (https://cdn.discordapp.com/app-assets/445956193924546560/446301881636225042.png)

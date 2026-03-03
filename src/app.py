@@ -1,17 +1,21 @@
 import discord
-import EventHandler
+from Event.EventHandler import EventHandler
+from Logger.Logger import Logger
 import json 
-
+import os
+from Database.SQLiteDatabase import SQLiteDatabase
 try:
     intents = discord.Intents.all()
 
     client = discord.Client(intents=intents)
 
-    from Database.SQLiteDatabase import SQLiteDatabase
-    db = SQLiteDatabase("database.db")
+    
+    _basedir = os.path.dirname(os.path.abspath(__file__))
+    db = SQLiteDatabase(os.path.join(_basedir, "Database", "database.db"))
     db.initialize_schema()
 
-    eventHandler = EventHandler.EventHandler(client, db)
+    logger = Logger()
+    eventHandler = EventHandler(client, db, logger)
     eventHandler.handleEvents()
 
     with open("credentials.json") as f:

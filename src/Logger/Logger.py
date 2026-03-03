@@ -1,7 +1,10 @@
 from datetime import datetime
+from Logger.ILogger import ILogger
+import os
 
-class Logger:
-    def __init__(self, log_file='activity_log.txt'):
+_basedir = os.path.dirname(os.path.abspath(__file__))
+class Logger(ILogger):
+    def __init__(self, log_file=os.path.join(_basedir, "Logger", "activity_log.txt")):
         self.log_file = log_file
 
     def log(self, message):

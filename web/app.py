@@ -1,14 +1,48 @@
 import sqlite3
 from flask import Flask, render_template, jsonify
 import os
+import shutil
+import time
+import threading
 
 app = Flask(__name__)
 
 # The database is located in the parent folder's src/ directory
-DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'src', 'database.db')
+# DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'src', 'database.db')
+DB_PATH = "D:/database.db"
+
+USE_DB_CACHING = True
+LOCAL_DB_PATH = os.path.join(os.path.dirname(__file__), "local_cache.db")
+
+# Track remote file state in memory
+_last_remote_mtime = 0
+_last_remote_size = 0
+
+def sync_db_cache_loop():
+    global _last_remote_mtime, _last_remote_size
+    while True:
+        if USE_DB_CACHING:
+            try:
+                current_mtime = os.path.getmtime(DB_PATH)
+                current_size = os.path.getsize(DB_PATH)
+                
+                if current_mtime != _last_remote_mtime or current_size != _last_remote_size or not os.path.exists(LOCAL_DB_PATH):
+                    print(f"[Cache Daemon] Remote DB changed! Syncing {current_size} bytes...")
+                    shutil.copy2(DB_PATH, LOCAL_DB_PATH)
+                    _last_remote_mtime = current_mtime
+                    _last_remote_size = current_size
+                    print("[Cache Daemon] Cache sync complete.")
+            except Exception as e:
+                print(f"[Cache Daemon] Sync error: {e}")
+                
+        time.sleep(60)
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_PATH)
+    if USE_DB_CACHING and os.path.exists(LOCAL_DB_PATH):
+        conn = sqlite3.connect(LOCAL_DB_PATH)
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -169,4 +203,8 @@ def api_get_user_history(user_id):
     })
 
 if __name__ == '__main__':
-    app.run(debug=True, port=3000)
+    # Start the background sync daemon before launching Flask
+    sync_thread = threading.Thread(target=sync_db_cache_loop, daemon=True)
+    sync_thread.start()
+    
+    app.run(debug=True, port=3000, use_reloader=False)  # Disabled use_reloader to avoid double-spawning threads

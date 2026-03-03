@@ -1,9 +1,9 @@
 import discord
 from Database.IDatabase import IDatabase, DiscordEvent
-import Logger
+from Logger.ILogger import ILogger
 
 class EventProcessor:
-    def __init__(self, db: IDatabase, logger: Logger.Logger):
+    def __init__(self, db: IDatabase, logger: ILogger):
         self.db = db
         self.logger = logger
 
