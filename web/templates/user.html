@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>User Profile - Big Brother</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body {
+        background-color: #313338;
+        color: #dbdee1;
+        font-family: sans-serif;
+      }
+      .timeline-line {
+        position: absolute;
+        left: 1.25rem;
+        top: 2rem;
+        bottom: -2rem;
+        width: 2px;
+        background-color: #3f4147;
+        z-index: 0;
+      }
+      .timeline-dot {
+        position: relative;
+        z-index: 10;
+        width: 1rem;
+        height: 1rem;
+        border-radius: 50%;
+        box-shadow: 0 0 0 4px #313338;
+      }
+      .event-card {
+        background-color: #2b2d31;
+        border: 1px solid #1e1f22;
+      }
+    </style>
+  </head>
+  <body class="min-h-screen flex flex-col">
+    <!-- Navbar -->
+    <nav class="bg-[#1E1F22] shadow-md border-b border-[#1E1F22]">
+      <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex items-center h-16">
+          <a
+            href="/"
+            class="flex items-center space-x-2 text-gray-400 hover:text-white transition-colors"
+          >
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M10 19l-7-7m0 0l7-7m-7 7h18"
+              ></path>
+            </svg>
+            <span class="font-medium">Back to Dashboard</span>
+          </a>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="flex-1 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+      <!-- Profile Header -->
+      <div
+        id="profile-header"
+        class="mb-10 bg-[#2B2D31] rounded-xl p-6 flex items-center space-x-6 shadow-lg border border-[#1E1F22] hidden relative overflow-hidden"
+      >
+        <!-- Banner Background Box -->
+        <div
+          id="banner-bg"
+          class="absolute inset-0 bg-cover bg-center opacity-20 hidden"
+        ></div>
+
+        <img
+          id="avatar-img"
+          class="w-24 h-24 rounded-full border-4 border-[#1E1F22] shadow-md relative z-10 object-cover"
+          src=""
+          alt="Avatar"
+        />
+        <div class="relative z-10">
+          <h1 id="global-name" class="text-3xl font-bold text-white mb-1"></h1>
+          <p id="username" class="text-xl text-gray-400"></p>
+          <div id="badges" class="flex items-center space-x-2 mt-3"></div>
+        </div>
+      </div>
+
+      <!-- Timeline Feed -->
+      <h2
+        class="text-xl font-bold text-white mb-6 pl-4 border-l-4 border-indigo-500"
+      >
+        Chronological History
+      </h2>
+
+      <div id="timeline" class="relative pl-4 space-y-6">
+        <div class="timeline-line hidden md:block" id="master-line"></div>
+        <p id="loading-text" class="text-gray-400 animate-pulse">
+          Scanning database history...
+        </p>
+      </div>
+    </main>
+
+    <script>
+      // Extract User ID from the Template context injected by Flask
+      const USER_ID = "{{ user_id }}";
+
+      fetch(`/api/users/${USER_ID}/history`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.error) {
+            document.getElementById("loading-text").innerText =
+              "User not found.";
+            return;
+          }
+
+          renderHeader(data.profile);
+          renderTimeline(data);
+        })
+        .catch((err) => {
+          console.error(err);
+          document.getElementById("loading-text").innerText =
+            "Failed to load history.";
+        });
+
+      function renderHeader(profile) {
+        document.getElementById("profile-header").classList.remove("hidden");
+
+        document.getElementById("global-name").innerText =
+          profile.global_name || profile.name;
+        document.getElementById("username").innerText = profile.global_name
+          ? `@${profile.name}`
+          : "";
+        document.getElementById("avatar-img").src =
+          profile.avatar_url ||
+          "https://cdn.discordapp.com/embed/avatars/0.png";
+
+        if (profile.banner_url) {
+          const banner = document.getElementById("banner-bg");
+          banner.style.backgroundImage = `url(${profile.banner_url})`;
+          banner.classList.remove("hidden");
+        }
+
+        const badges = document.getElementById("badges");
+        if (profile.bot)
+          badges.innerHTML += `<span class="bg-indigo-500 text-white text-xs font-bold px-2 py-0.5 rounded shadow">BOT</span>`;
+        if (profile.premium_since)
+          badges.innerHTML += `<span class="bg-pink-500 text-white text-xs font-bold px-2 py-0.5 rounded shadow flex items-center space-x-1"><svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M2.19 1.15a.75.75 0 011.02-.12l1.32.99 1.25-1.56a.75.75 0 011.17 0l1.25 1.56 1.32-.99a.75.75 0 011.17.8L7.69 4.39A2.25 2.25 0 015.89 5H4.11a2.25 2.25 0 01-1.8-1.5L.93 1.83a.75.75 0 011.26-.68z"/><path fill-rule="evenodd" d="M1.5 6a2.5 2.5 0 012.5-2.5h12A2.5 2.5 0 0118.5 6v7A2.5 2.5 0 0116 15.5H4A2.5 2.5 0 011.5 13V6zM4 5a1 1 0 00-1 1v7a1 1 0 001 1h12a1 1 0 001-1V6a1 1 0 00-1-1H4z" clip-rule="evenodd"/></svg><span>Server Booster</span></span>`;
+        if (profile.pending)
+          badges.innerHTML += `<span class="bg-yellow-600 text-white text-xs font-bold px-2 py-0.5 rounded shadow">Pending Member</span>`;
+      }
+
+      function formatTime(isoStr) {
+        if (!isoStr) return "Ongoing";
+        const d = new Date(isoStr);
+        // Replace 'UTC' manually if sqlite didn't parse timezone
+        const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+        return local.toLocaleString([], {
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        });
+      }
+
+      function renderTimeline(data) {
+        document.getElementById("loading-text").remove();
+        const timeline = document.getElementById("timeline");
+
+        // 1. Flatten all events into a single array
+        let events = [];
+
+        data.activities.forEach((a) =>
+          events.push({
+            type: "Activity",
+            time: a.started_at,
+            end: a.ended_at,
+            data: a,
+          }),
+        );
+        data.voice_sessions.forEach((v) =>
+          events.push({
+            type: "Voice",
+            time: v.started_at,
+            end: v.ended_at,
+            data: v,
+          }),
+        );
+        data.roles.forEach((r) =>
+          events.push({
+            type: "Role",
+            time: r.started_at,
+            end: r.ended_at,
+            data: r,
+          }),
+        );
+        data.snapshots.sort(
+          (a, b) => new Date(a.timestamp) - new Date(b.timestamp),
+        );
+        for (let i = 0; i < data.snapshots.length; i++) {
+          const current = data.snapshots[i];
+          let changes = [];
+
+          if (i > 0) {
+            const previous = data.snapshots[i - 1];
+            if (current.nick !== previous.nick) {
+              changes.push(
+                `Nickname changed to <span class="text-white font-semibold">"${current.nick || "None"}"</span>`,
+              );
+            }
+            if (current.raw_status !== previous.raw_status) {
+              changes.push(
+                `Status changed to <span class="text-white font-semibold">${current.raw_status || "Offline"}</span>`,
+              );
+            }
+            if (current.guild_avatar_id !== previous.guild_avatar_id) {
+              changes.push(`Updated Server Avatar`);
+            }
+          }
+
+          events.push({
+            type: "Profile",
+            time: current.timestamp,
+            data: current,
+            explicitChanges: changes,
+          });
+        }
+
+        // 2. Sort DESC by time
+        events.sort((a, b) => new Date(b.time) - new Date(a.time));
+
+        if (events.length === 0) {
+          timeline.innerHTML += `<p class="text-gray-500 italic">No history recorded yet.</p>`;
+          return;
+        }
+
+        // 3. Render
+        events.forEach((ev, idx) => {
+          const isLast = idx === events.length - 1;
+          let dotColor = "bg-gray-500";
+          let icon = "";
+          let contentHTML = "";
+
+          if (ev.type === "Voice") {
+            dotColor = "bg-green-500";
+            icon = "🎤";
+            const isMuted = ev.data.self_mute || ev.data.self_deaf;
+            const muteBadge = isMuted
+              ? `<span class="text-red-400 text-xs font-bold border border-red-400/30 bg-red-400/10 px-1.5 py-0.5 rounded ml-2">MUTED</span>`
+              : "";
+            contentHTML = `
+                      <div class="font-bold text-white flex items-center">Voice Channel: ${ev.data.channel_id || "Unknown"} ${muteBadge}</div>
+                      <div class="text-sm mt-1 text-gray-400">Duration: ${formatTime(ev.time)} — ${formatTime(ev.end)}</div>
+                      <div class="text-xs mt-2 text-gray-500">Guild: ${ev.data.guild_name}</div>
+                  `;
+          } else if (ev.type === "Activity") {
+            if (ev.data.name === "Spotify") {
+              dotColor = "bg-green-400";
+              icon = "🎵";
+              let skippedBadge = "";
+              if (ev.data.start && ev.data.end && ev.end) {
+                const trackDurationMs =
+                  new Date(ev.data.end) - new Date(ev.data.start);
+                const listenedDurationMs = new Date(ev.end) - new Date(ev.time);
+
+                // If they listened for fewer ms than the track duration (minus 6 seconds tolerance)
+                if (listenedDurationMs < trackDurationMs - 6000) {
+                  skippedBadge = `<span class="text-red-400 text-xs font-bold border border-red-400/30 bg-red-400/10 px-1.5 py-0.5 rounded ml-2">SKIPPED</span>`;
+                }
+              }
+
+              contentHTML = `
+                          <div class="font-bold text-white flex items-center">Listening to Spotify ${skippedBadge}</div>
+                          <div class="text-sm mt-1 text-gray-300"><span class="font-semibold text-white">${ev.data.spotify_song_name || "Unknown Song"}</span> by <span class="italic">${ev.data.spotify_artists || "Unknown Artist"}</span></div>
+                          <div class="text-sm mt-1 text-gray-400">Duration: ${formatTime(ev.time)} — ${formatTime(ev.end)}</div>
+                      `;
+            } else {
+              dotColor = "bg-indigo-500";
+              icon = "🎮";
+              contentHTML = `
+                          <div class="font-bold text-white">Playing ${ev.data.name || "a Game"}</div>
+                          ${ev.data.details ? `<div class="text-sm mt-1 text-gray-300 italic">${ev.data.details}</div>` : ""}
+                          ${ev.data.state ? `<div class="text-sm mt-0.5 text-gray-400">${ev.data.state}</div>` : ""}
+                          <div class="text-sm mt-1 text-gray-400">Duration: ${formatTime(ev.time)} — ${formatTime(ev.end)}</div>
+                      `;
+            }
+          } else if (ev.type === "Role") {
+            dotColor = "bg-pink-500";
+            icon = "🛡️";
+            contentHTML = `
+                      <div class="font-bold text-white">Granted Role: <span class="text-pink-400">${ev.data.role_name}</span></div>
+                      <div class="text-sm mt-1 text-gray-400">Duration: ${formatTime(ev.time)} — ${formatTime(ev.end)}</div>
+                      <div class="text-xs mt-2 text-gray-500">Guild: ${ev.data.guild_name}</div>
+                  `;
+          } else if (ev.type === "Profile") {
+            dotColor = "bg-yellow-500";
+            icon = "📸";
+            const eventDesc =
+              ev.data.event_type === 1
+                ? "Member Joined"
+                : ev.data.event_type === 2
+                  ? "Member Left"
+                  : "Profile Updated";
+
+            let changesHTML = "";
+            if (ev.explicitChanges && ev.explicitChanges.length > 0) {
+              changesHTML =
+                `<ul class="list-disc pl-5 mt-2 text-sm text-gray-300 space-y-1">` +
+                ev.explicitChanges.map((c) => `<li>${c}</li>`).join("") +
+                `</ul>`;
+            }
+
+            contentHTML = `
+                      <div class="font-bold text-white">${eventDesc}</div>
+                      ${changesHTML}
+                      <div class="text-xs mt-3 text-gray-500">Guild: ${ev.data.guild_name} | Status: ${ev.data.raw_status || "Unknown"} | Time: ${formatTime(ev.time)}</div>
+                  `;
+          }
+
+          const item = document.createElement("div");
+          item.className = "relative flex items-start space-x-4";
+          item.innerHTML = `
+                  <div class="timeline-dot ${dotColor} flex items-center justify-center mt-1 text-xs shadow-md">
+                      <span class="absolute -left-8 text-xl">${icon}</span>
+                  </div>
+                  <div class="event-card flex-1 rounded-lg p-4 shadow-sm relative group">
+                      ${contentHTML}
+                  </div>
+              `;
+          timeline.appendChild(item);
+
+          // Hide timeline line tail on last item
+          if (isLast) {
+            item.innerHTML += `<div class="absolute left-[0.25rem] top-4 w-4 h-full bg-[#313338] z-0"></div>`;
+          }
+        });
+      }
+    </script>
+  </body>
+</html>
