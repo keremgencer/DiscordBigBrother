@@ -8,6 +8,12 @@ class EventProcessor:
         self.logger = logger
 
     async def process_system_init(self, client: discord.Client):
+        for user in client.users:
+            try:
+                self.db.insert_user_history(user, DiscordEvent.SYSTEM_INIT)
+            except Exception as e:
+                self.logger.log(f"DB Error tracking user init for {user.name}: {e}\n")
+
         for guild in client.guilds:
             for member in guild.members:
                 try:
@@ -79,7 +85,7 @@ class EventProcessor:
 
     async def process_presence_update(self, before, after):
         try:
-            self.db.insert_member_history(after, DiscordEvent.PRESENCE_UPDATE)
+            self.db.insert_member_history(after, DiscordEvent.PRESENCE_UPDATE)#todo the song, artist, album, and url does not get saved in the database
             message = ""
             member_name = after.name
 
@@ -192,3 +198,26 @@ class EventProcessor:
                 self.logger.log(message)
         except Exception as e:
             self.logger.log(f"Error in on_voice_state_update: {e}\n")
+
+    async def process_user_update(self, before, after):
+        try:
+            self.db.insert_user_history(after, DiscordEvent.USER_UPDATE)
+            message = ""
+            user_name = after.name
+
+            if before.name != after.name:
+                message += f"🏷️ {user_name} changed their global username: '{before.name}' -> '{after.name}'.\n"
+
+            if before.global_name != after.global_name:
+                message += f"🎭 {user_name} changed their global display name: '{before.global_name}' -> '{after.global_name}'.\n"
+
+            if before.avatar != after.avatar:
+                message += f"🖼️ {user_name} updated their global avatar.\n"
+
+            if before.banner != after.banner:
+                message += f"🎌 {user_name} updated their global banner.\n"
+
+            if message.strip():
+                self.logger.log(message)
+        except Exception as e:
+            self.logger.log(f"Error in on_user_update: {e}\n")

@@ -23,10 +23,20 @@ class SQLiteDatabase(IDatabase):
             # Enable Foreign Keys
             cursor.execute("PRAGMA foreign_keys = ON;")
 
-            # UserList: only ID since global properties go to UserHistory later
+            # UserHistory: stores global properties of the user
             cursor.execute("""
-                CREATE TABLE IF NOT EXISTS UserList (
-                    id INTEGER PRIMARY KEY
+                CREATE TABLE IF NOT EXISTS UserHistory (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    name TEXT,
+                    global_name TEXT,
+                    avatar_id INTEGER,
+                    banner_id INTEGER,
+                    bot BOOLEAN,
+                    created_at TIMESTAMP,
+                    timestamp TIMESTAMP NOT NULL,
+                    FOREIGN KEY(avatar_id) REFERENCES Images(id),
+                    FOREIGN KEY(banner_id) REFERENCES Images(id)
                 )
             """)
 
@@ -70,7 +80,6 @@ class SQLiteDatabase(IDatabase):
                     web_status TEXT,
                     flags INTEGER,
                     left_at TIMESTAMP,
-                    FOREIGN KEY(user_id) REFERENCES UserList(id),
                     FOREIGN KEY(guild_id) REFERENCES GuildList(id),
                     FOREIGN KEY(guild_avatar_id) REFERENCES Images(id),
                     FOREIGN KEY(guild_banner_id) REFERENCES Images(id)
@@ -90,7 +99,10 @@ class SQLiteDatabase(IDatabase):
             # MemberActivityHistory
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS MemberActivityHistory (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     history_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    guild_id INTEGER NOT NULL,
                     name TEXT,
                     type TEXT,
                     details TEXT,
@@ -98,6 +110,12 @@ class SQLiteDatabase(IDatabase):
                     url TEXT,
                     start TIMESTAMP,
                     end TIMESTAMP,
+                    spotify_song_name TEXT,
+                    spotify_artists TEXT,
+                    spotify_album TEXT,
+                    spotify_track_id TEXT,
+                    started_at TIMESTAMP NOT NULL,
+                    ended_at TIMESTAMP,
                     FOREIGN KEY(history_id) REFERENCES MemberHistory(id) ON DELETE CASCADE
                 )
             """)
@@ -118,8 +136,8 @@ class SQLiteDatabase(IDatabase):
             conn.commit()
 
     def _ensure_user_and_guild(self, cursor, member: discord.Member):
-        # Insert user if not exists
-        cursor.execute("INSERT OR IGNORE INTO UserList (id) VALUES (?)", (member.id,))
+        # the user history is handled separately now; just ensure guild logic remains intact
+
         
         # Insert guild if not exists. Note: bot_joined_at could be updated if needed, but for now we insert if missing.
         # member.guild.me.joined_at gets when the bot joined the guild.
@@ -175,9 +193,15 @@ class SQLiteDatabase(IDatabase):
             roles = [dict(r) for r in cursor.fetchall()]
             
             # Fetch Activities
-            cursor.execute("SELECT * FROM MemberActivityHistory WHERE history_id = ?", (history_id,))
+            # Note: Now fetches from MemberActivityHistory based on active state (ended_at is NULL) or recent ending intersecting history row
+            # For exact "last instance" compatibility, just return currently ongoing activities.
+            cursor.execute("""
+                SELECT * FROM MemberActivityHistory
+                WHERE user_id = ? AND guild_id = ? AND ended_at IS NULL
+            """, (user_id, guild_id))
             activities = [dict(a) for a in cursor.fetchall()]
-            
+
+
             # Fetch Voice State
             cursor.execute("SELECT * FROM MemberVoiceStateHistory WHERE history_id = ?", (history_id,))
             voice_row = cursor.fetchone()
@@ -225,7 +249,13 @@ class SQLiteDatabase(IDatabase):
             roles = [dict(r) for r in cursor.fetchall()]
             
             # Fetch Activities
-            cursor.execute("SELECT * FROM MemberActivityHistory WHERE history_id = ?", (history_id,))
+            # For point-in-time, we want activities that started before target_time, and either haven't ended or ended after target_time.
+            cursor.execute("""
+                SELECT * FROM MemberActivityHistory 
+                WHERE user_id = ? AND guild_id = ? 
+                  AND started_at <= ? 
+                  AND (ended_at IS NULL OR ended_at >= ?)
+            """, (user_id, guild_id, target_time, target_time))
             activities = [dict(a) for a in cursor.fetchall()]
             
             # Fetch Voice State
@@ -316,30 +346,34 @@ class SQLiteDatabase(IDatabase):
         if curr_vs != last_vs:
             return True
             
-        # Compare Activities
-        curr_acts = current_data.get("activities", [])
-        last_acts = last_data.get("activities", [])
-        if len(curr_acts) != len(last_acts):
+        return False
+        
+    def _is_activity_state_different(self, current_activities: list, last_activities: list) -> bool:
+        if len(current_activities) != len(last_activities):
             return True
             
         def clean_act(act):
-            # ignore IDs and convert datetime to string to match SQLite fetch output
             cleaned = {}
+            # ignore IDs, timestamps explicitly so we don't trigger updates for mere time ticks
             for k, v in act.items():
-                if k in ["id", "history_id"] or v is None: continue
+                if k in ["id", "history_id", "start", "end", "started_at", "ended_at", "user_id", "guild_id"]:
+                     continue
+                
+                # Exclude state for rich presence time-remaining ticks
+                if k == "state":
+                     continue
+                     
                 if isinstance(v, datetime):
-                    cleaned[k] = v.strftime('%Y-%m-%d %H:%M:%S') # approximate matching
+                    cleaned[k] = v.strftime('%Y-%m-%d %H:%M:%S')
                 else:
                     cleaned[k] = str(v)
             return cleaned
             
-        # Check all cleaned activities
-        ca_list = [clean_act(a) for a in curr_acts]
-        la_list = [clean_act(a) for a in last_acts]
+        ca_list = [clean_act(a) for a in current_activities]
+        la_list = [clean_act(a) for a in last_activities]
         
-        # Sort both lists safely to compare regardless of order
         def act_sort_key(act_dict):
-            return str(act_dict.get("name", "")) + str(act_dict.get("type", "")) + str(act_dict.get("state", ""))
+            return str(act_dict.get("name", "")) + str(act_dict.get("type", "")) + str(act_dict.get("details", ""))
             
         ca_list.sort(key=act_sort_key)
         la_list.sort(key=act_sort_key)
@@ -391,13 +425,23 @@ class SQLiteDatabase(IDatabase):
                 "type": str(getattr(act, "type", "")) or None,
                 "details": getattr(act, "details", None),
                 "state": getattr(act, "state", None),
-                "url": getattr(act, "url", None)
+                "url": getattr(act, "url", None),
+                "spotify_song_name": None,
+                "spotify_artists": None,
+                "spotify_album": None,
+                "spotify_track_id": None
             }
-            # Handles Spotify/custom start end dates
             if hasattr(act, "start"): act_data["start"] = act.start
             if hasattr(act, "end"): act_data["end"] = act.end
-            current_data["activities"].append(act_data)
             
+            if isinstance(act, discord.Spotify):
+                act_data["spotify_song_name"] = act.title
+                act_data["spotify_artists"] = ", ".join(act.artists)
+                act_data["spotify_album"] = act.album
+                act_data["spotify_track_id"] = act.track_id
+                
+            current_data["activities"].append(act_data)
+        
         # Voice State
         if member.voice:
             current_data["voice_state"] = {
@@ -410,54 +454,194 @@ class SQLiteDatabase(IDatabase):
             
         # Delta Check
         last_data = self.get_member_last_instance(member.id, member.guild.id)
+        
+        # Decide if we need to insert a MemberHistory profile snapshot
+        needs_snapshot = True
+        history_id = None
+        
         if last_data:
             state_changed = self._is_state_different(current_data, last_data)
-            # We always log MEMBER_REMOVE and MEMBER_JOIN regardless of delta check
             if not state_changed and event_type not in [DiscordEvent.MEMBER_JOIN, DiscordEvent.MEMBER_REMOVE]:
-                return # No need to save a duplicated snapshot
+                needs_snapshot = False
+                history_id = last_data["id"]
                 
-        # Need to insert
-        cursor.execute("""
-            INSERT INTO MemberHistory (
-                user_id, guild_id, event_type, timestamp, nick,
-                guild_avatar_id, guild_banner_id, joined_at, premium_since, pending,
-                timed_out_until, raw_status, mobile_status, desktop_status, web_status, flags, left_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            member.id, member.guild.id, event_type.value, timestamp, current_data["nick"],
-            current_data["guild_avatar_id"], current_data["guild_banner_id"], current_data["joined_at"],
-            current_data["premium_since"], current_data["pending"], current_data["timed_out_until"],
-            current_data["raw_status"], current_data["mobile_status"], current_data["desktop_status"],
-            current_data["web_status"], current_data["flags"], current_data["left_at"]
-        ))
-        
-        history_id = cursor.lastrowid
-        
-        # Insert Roles
-        for role in current_data["roles"]:
+        if needs_snapshot:
+            # Need to insert
             cursor.execute("""
-                INSERT INTO MemberRolesHistory (history_id, role_id, role_name) VALUES (?, ?, ?)
-            """, (history_id, role["role_id"], role["role_name"]))
+                INSERT INTO MemberHistory (
+                    user_id, guild_id, event_type, timestamp, nick,
+                    guild_avatar_id, guild_banner_id, joined_at, premium_since, pending,
+                    timed_out_until, raw_status, mobile_status, desktop_status, web_status, flags, left_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                member.id, member.guild.id, event_type.value, timestamp, current_data["nick"],
+                current_data["guild_avatar_id"], current_data["guild_banner_id"], current_data["joined_at"],
+                current_data["premium_since"], current_data["pending"], current_data["timed_out_until"],
+                current_data["raw_status"], current_data["mobile_status"], current_data["desktop_status"],
+                current_data["web_status"], current_data["flags"], current_data["left_at"]
+            ))
+            history_id = cursor.lastrowid
             
-        # Insert Activities
+            # Only insert roles & voice states if we created a new snapshot
+            for role in current_data["roles"]:
+                cursor.execute("""
+                    INSERT INTO MemberRolesHistory (history_id, role_id, role_name) VALUES (?, ?, ?)
+                """, (history_id, role["role_id"], role["role_name"]))
+                
+            voice = current_data["voice_state"]
+            if voice:
+                cursor.execute("""
+                    INSERT INTO MemberVoiceStateHistory (history_id, channel_id, self_mute, self_deaf, self_stream, self_video)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    history_id, voice.get("channel_id"), voice.get("self_mute"), voice.get("self_deaf"),
+                    voice.get("self_stream"), voice.get("self_video")
+                ))
+        
+        # Now process Activities Tracking Independently
+        current_acts_cleaned = []
         for act in current_data["activities"]:
-            cursor.execute("""
-                INSERT INTO MemberActivityHistory (history_id, name, type, details, state, url, start, end)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                history_id, act.get("name"), act.get("type"), act.get("details"), 
-                act.get("state"), act.get("url"), act.get("start"), act.get("end")
-            ))
+            # create a key dictionary to uniquely identify the "running instance" of an act
+            # Ensure None values are uniformly represented as empty strings to avoid "None" != "" mismatches
+            name_str = str(act.get("name") or "")
+            type_str = str(act.get("type") or "")
+            details_str = str(act.get("details") or "")
             
-        # Insert Voice State
-        voice = current_data["voice_state"]
-        if voice:
-            cursor.execute("""
-                INSERT INTO MemberVoiceStateHistory (history_id, channel_id, self_mute, self_deaf, self_stream, self_video)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                history_id, voice.get("channel_id"), voice.get("self_mute"), voice.get("self_deaf"),
-                voice.get("self_stream"), voice.get("self_video")
-            ))
+            c_dict = {
+                "name": act.get("name"),
+                "type": act.get("type"),
+                "details": act.get("details"),
+                "clean_key": name_str + type_str + details_str
+            }
+            current_acts_cleaned.append(c_dict)
+
+        # Get the ongoing activities directly from DB
+        cursor.execute("""
+            SELECT id, name, type, details FROM MemberActivityHistory
+            WHERE user_id = ? AND guild_id = ? AND ended_at IS NULL
+        """, (member.id, member.guild.id))
         
+        ongoing_db_acts = []
+        for row in cursor.fetchall():
+            name_str = str(row["name"] if row["name"] is not None else "")
+            type_str = str(row["type"] if row["type"] is not None else "")
+            details_str = str(row["details"] if row["details"] is not None else "")
+            
+            ongoing_db_acts.append({
+                "id": row["id"],
+                "clean_key": name_str + type_str + details_str
+            })
+        # List of clean_keys currently active in discord
+        current_keys = [c["clean_key"] for c in current_acts_cleaned]
+        
+        # 1. Any DB activity not in current_keys has ENDED
+        ended_ids = []
+        for db_act in ongoing_db_acts:
+            if db_act["clean_key"] not in current_keys:
+                ended_ids.append(db_act["id"])
+                
+        if ended_ids:
+            placeholders = ",".join("?" for _ in ended_ids)
+            cursor.execute(f"""
+                UPDATE MemberActivityHistory 
+                SET ended_at = ?
+                WHERE id IN ({placeholders})
+            """, [timestamp] + ended_ids)
+
+        # 2. Any current activity not in ongoing_db_acts is NEW
+        db_keys = [d["clean_key"] for d in ongoing_db_acts]
+        
+        new_acts_to_insert = []
+        for act in current_data["activities"]:
+            name_str = str(act.get("name") or "")
+            type_str = str(act.get("type") or "")
+            details_str = str(act.get("details") or "")
+            clean_key = name_str + type_str + details_str
+            
+            if clean_key not in db_keys:
+                new_acts_to_insert.append(act)
+
+        if new_acts_to_insert:
+            for act in new_acts_to_insert:
+                cursor.execute("""
+                    INSERT INTO MemberActivityHistory (
+                        history_id, user_id, guild_id, name, type, details, state, url, start, end, 
+                        spotify_song_name, spotify_artists, spotify_album, spotify_track_id, started_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    history_id if history_id else (last_data["id"] if last_data else 0), 
+                    member.id, member.guild.id, act.get("name"), act.get("type"), act.get("details"), 
+                    act.get("state"), act.get("url"), act.get("start"), act.get("end"),
+                    act.get("spotify_song_name"), act.get("spotify_artists"), act.get("spotify_album"), act.get("spotify_track_id"),
+                    timestamp
+                ))
+                
         conn.commit()
+
+    def get_user_last_instance(self, user_id: int) -> Optional[dict]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM UserHistory 
+                WHERE user_id = ?
+                ORDER BY timestamp DESC, id DESC LIMIT 1
+            """, (user_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def insert_user_history(self, user: discord.User, event_type: DiscordEvent):
+        timestamp = datetime.now(timezone.utc)
+        
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            
+            avatar_id = self._get_or_create_image(cursor, user.avatar)
+            banner_id = self._get_or_create_image(cursor, getattr(user, 'banner', None))
+            
+            current_data = {
+                "user_id": user.id,
+                "name": getattr(user, "name", None),
+                "global_name": getattr(user, "global_name", None),
+                "avatar_id": avatar_id,
+                "banner_id": banner_id,
+                "bot": 1 if getattr(user, "bot", False) else 0,
+                "created_at": getattr(user, "created_at", None)
+            }
+            
+            last_data = self.get_user_last_instance(user.id)
+            
+            needs_snapshot = True
+            if last_data:
+                state_changed = False
+                for key in ["name", "global_name", "avatar_id", "banner_id", "bot", "created_at"]:
+                    curr_val = current_data.get(key)
+                    last_val = last_data.get(key)
+                    
+                    if isinstance(curr_val, datetime):
+                        curr_val = curr_val.strftime('%Y-%m-%d %H:%M:%S')
+                        if curr_val.endswith(" 00:00:00"): curr_val = curr_val.replace(" 00:00:00", "")
+                    
+                    if isinstance(last_val, str) and len(last_val) > 19:
+                        last_val = last_val[:19]
+                    elif last_val and isinstance(last_val, datetime):
+                        last_val = last_val.strftime('%Y-%m-%d %H:%M:%S')
+                        
+                    if str(curr_val) != str(last_val):
+                        state_changed = True
+                        break
+                        
+                if not state_changed:
+                    needs_snapshot = False
+                    
+            if needs_snapshot:
+                cursor.execute("""
+                    INSERT INTO UserHistory (
+                        user_id, name, global_name, avatar_id, banner_id, bot, created_at, timestamp
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    current_data["user_id"], current_data["name"], current_data["global_name"], 
+                    current_data["avatar_id"], current_data["banner_id"], current_data["bot"], 
+                    current_data["created_at"], timestamp
+                ))
+                
+            conn.commit()

@@ -10,6 +10,7 @@ class DiscordEvent(Enum):
     MEMBER_UPDATE = "MEMBER_UPDATE"
     PRESENCE_UPDATE = "PRESENCE_UPDATE"
     VOICE_UPDATE = "VOICE_UPDATE"
+    USER_UPDATE = "USER_UPDATE"
     SYSTEM_INIT = "SYSTEM_INIT" # Used on bot startup for the initial snapshot
 
 class IDatabase(ABC):
@@ -39,5 +40,12 @@ class IDatabase(ABC):
         """
         Retrieves the historical snapshot for a given user and guild that was active at exact `target_time`.
         Should return a dictionary representation of the member state at that time.
+        """
+        pass
+        
+    @abstractmethod
+    def insert_user_history(self, user: discord.User, event_type: DiscordEvent):
+        """
+        Inserts a new snapshot into UserHistory if the global user attributes have changed.
         """
         pass

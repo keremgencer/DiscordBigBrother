@@ -11,8 +11,8 @@ try:
     db = SQLiteDatabase("database.db")
     db.initialize_schema()
 
-    eventHandeler = EventHandler.EventHandler(client, db)
-    eventHandeler.handleEvents()
+    eventHandler = EventHandler.EventHandler(client, db)
+    eventHandler.handleEvents()
 
     with open("credentials.json") as f:
         credentials = json.load(f)  

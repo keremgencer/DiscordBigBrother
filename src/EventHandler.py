@@ -75,7 +75,8 @@ class EventHandler:
         async def on_voice_state_update(member, before, after):
             await self.processor.process_voice_state_update(member, before, after)
 
-#todo: on_user_update (global profile changes like username, discriminator, avatar) kesin eklenecek.
-#todo şu anda dinlenen eventlerin detaylarına inilebilir.
-#todo: bir database e bağlayıp sonrasında sql komutları ile filtreleme işi basitleştirilebilir.
+        @self.client.event
+        async def on_user_update(before, after):
+            await self.processor.process_user_update(before, after)
+
 #todo database sonradan arayüze de bağlanabilir. (örneğin web tabanlı bir dashboard)
