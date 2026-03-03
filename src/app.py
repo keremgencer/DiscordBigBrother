@@ -3,15 +3,15 @@ import EventHandler
 import json 
 
 try:
-    # Botun kullanıcıları ve aktiviteleri görebilmesi için gerekli niyetleri (intents) açıyoruz
     intents = discord.Intents.all()
-    #intents.presences = True
-    #intents.members = True
-    #intents.message_content = True
 
     client = discord.Client(intents=intents)
 
-    eventHandeler = EventHandler.EventHandler(client)
+    from Database.SQLiteDatabase import SQLiteDatabase
+    db = SQLiteDatabase("database.db")
+    db.initialize_schema()
+
+    eventHandeler = EventHandler.EventHandler(client, db)
     eventHandeler.handleEvents()
 
     with open("credentials.json") as f:
