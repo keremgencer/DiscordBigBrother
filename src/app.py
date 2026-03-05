@@ -1,28 +1,42 @@
 import discord
-from Event.EventHandler import EventHandler
-from Logger.Logger import Logger
-import json 
+from discord.ext import commands
+import asyncio
 import os
+
 from Database.SQLiteDatabase import SQLiteDatabase
-try:
-    intents = discord.Intents.all()
+from Config import Config
+from Logger.ConsoleLogger import ConsoleLogger
 
-    client = discord.Client(intents=intents)
+class MyBot(commands.Bot):
+    def __init__(self):
+        super().__init__(
+            command_prefix="!",
+            intents=discord.Intents.all(),
+            help_command=None # We handle help in OwnerCog # todo help in OwnerCog is probably just for the owner, there should be another help command for the users
+        )
+        
+        # Attach our core components to the bot instance
+        # so Cogs can access them via self.bot.db, etc.
+        self.db = SQLiteDatabase(Config.DATABASE_PATH)
+        self.db.initialize_schema()
+        self.logger = ConsoleLogger()
 
-    
-    _basedir = os.path.dirname(os.path.abspath(__file__))
-    db = SQLiteDatabase(os.path.join(_basedir, "Database", "database.db"))
-    db.initialize_schema()
+    async def setup_hook(self):
+        # Load Cogs
+        await self.load_extension("Cogs.MusicCog")
+        await self.load_extension("Cogs.GeneralCog")
+        await self.load_extension("Cogs.OwnerCog")
+        await self.load_extension("Cogs.EventCog")
+        
+        # We sync in the on_ready event in EventCog instead, 
+        # or we could do it here. EventCog handles it currently.
 
-    logger = Logger()
-    eventHandler = EventHandler(client, db, logger)
-    eventHandler.handleEvents()
+async def main():
+    bot = MyBot()
+    try:
+        await bot.start(Config.BOT_TOKEN)
+    except Exception as e:
+        print(f"An error occurred while running the bot: {e}")
 
-    with open("credentials.json") as f:
-        credentials = json.load(f)  
-
-    client.run(credentials["bot_token"])
-
-except Exception as e:
-    print(f"An error occurred while running the bot: {e}")
-
+if __name__ == "__main__":
+    asyncio.run(main())

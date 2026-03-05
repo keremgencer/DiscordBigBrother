@@ -1,50 +1,75 @@
 import discord
-from Database.IDatabase import IDatabase, DiscordEvent
-from Logger.ILogger import ILogger
+from discord.ext import commands
+from Database.IDatabase import DiscordEvent
 
-class EventProcessor:
-    def __init__(self, db: IDatabase, logger: ILogger):
-        self.db = db
-        self.logger = logger
+class EventCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
 
-    async def process_system_init(self, client: discord.Client):
-        for user in client.users:
-            try:
-                self.db.insert_user_history(user, DiscordEvent.SYSTEM_INIT)
-            except Exception as e:
-                self.logger.log(f"DB Error tracking user init for {user.name}: {e}\n")
-
-        for guild in client.guilds:
-            for member in guild.members:
-                try:
-                    self.db.insert_member_history(member, DiscordEvent.SYSTEM_INIT)
-                except Exception as db_e:
-                    self.logger.log(f"DB Error tracking init for {member.name}: {db_e}\n")
-
-    async def process_member_join(self, member):
+    @commands.Cog.listener()
+    async def on_ready(self):
         try:
-            self.db.insert_member_history(member, DiscordEvent.MEMBER_JOIN)
-            message = ""
-            message += f"{member.name} joined the server.\n" #todo member list gibi detaylar eklenebilir
+            # Sync global commands
+            await self.bot.tree.sync()
             
-            if message.strip():
-                self.logger.log(message)
-        except Exception as e:
-            self.logger.log(f"Error in on_member_join: {e}\n")
+            print(f'Logged in as {self.bot.user}')
+            print('Started logging activities...')
+            print('-' * 50)
+            
+            # System init tracking
+            for user in self.bot.users:
+                try:
+                    self.bot.db.insert_user_history(user, DiscordEvent.SYSTEM_INIT)
+                except Exception as e:
+                    self.bot.logger.log(f"DB Error tracking user init for {user.name}: {e}\n")
 
-    async def process_member_remove(self, member):
-        try:
-            self.db.insert_member_history(member, DiscordEvent.MEMBER_REMOVE)
-            message = ""
-            message += f"{member.name} left the server.\n"
-            if message.strip():
-                self.logger.log(message)
-        except Exception as e:
-            self.logger.log(f"Error in on_member_remove: {e}\n")
+            for guild in self.bot.guilds:
+                for member in guild.members:
+                    try:
+                        self.bot.db.insert_member_history(member, DiscordEvent.SYSTEM_INIT)
+                    except Exception as db_e:
+                        self.bot.logger.log(f"DB Error tracking init for {member.name}: {db_e}\n")
 
-    async def process_member_update(self, before, after):
+        except Exception as e:
+            self.bot.logger.log(f"Error in on_ready: {e}\n")
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        # Ignore bot's own messages
+        if message.author == self.bot.user:
+            return
+
+        # `commands.Bot` already processes commands internally.
+        # Calling process_commands here in a listener causes commands to run twice!
+        pass
+
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member):
         try:
-            self.db.insert_member_history(after, DiscordEvent.MEMBER_UPDATE)
+            self.bot.db.insert_member_history(member, DiscordEvent.MEMBER_JOIN)
+            message = f"{member.name} joined the server.\n"
+            if message.strip():
+                self.bot.logger.log(message)
+        except Exception as e:
+            self.bot.logger.log(f"Error in on_member_join: {e}\n")
+
+    @commands.Cog.listener()
+    async def on_member_remove(self, member: discord.Member): 
+        try:
+            self.bot.db.insert_member_history(member, DiscordEvent.MEMBER_REMOVE)
+            message = f"{member.name} left the server.\n"
+            if message.strip():
+                self.bot.logger.log(message)
+        except Exception as e:
+            self.bot.logger.log(f"Error in on_member_remove: {e}\n")
+
+    # ---------------------------------------------------------
+    # 1. GUILD PROFILE UPDATES (on_member_update)
+    # ---------------------------------------------------------
+    @commands.Cog.listener()
+    async def on_member_update(self, before: discord.Member, after: discord.Member):
+        try:
+            self.bot.db.insert_member_history(after, DiscordEvent.MEMBER_UPDATE)
             message = ""
             member_name = after.name
 
@@ -79,13 +104,17 @@ class EventProcessor:
                 message += f"✅ {member_name} accepted the server rules and became a full member.\n"
 
             if message.strip():
-                self.logger.log(message)
+                self.bot.logger.log(message)
         except Exception as e:
-            self.logger.log(f"Error in on_member_update: {e}\n")
-
-    async def process_presence_update(self, before, after):
+            self.bot.logger.log(f"Error in on_member_update: {e}\n")
+    
+    # ---------------------------------------------------------
+    # 2. STATUS AND ACTIVITY UPDATES (on_presence_update)
+    # ---------------------------------------------------------
+    @commands.Cog.listener()
+    async def on_presence_update(self, before: discord.Member, after: discord.Member):
         try:
-            self.db.insert_member_history(after, DiscordEvent.PRESENCE_UPDATE)#todo the song, artist, album, and url does not get saved in the database
+            self.bot.db.insert_member_history(after, DiscordEvent.PRESENCE_UPDATE)
             message = ""
             member_name = after.name
 
@@ -160,13 +189,17 @@ class EventProcessor:
                     message += f"🛑 {member_name} closed all activities/games.\n"
 
             if message.strip():
-                self.logger.log(message)
+                self.bot.logger.log(message)
         except Exception as e:
-            self.logger.log(f"Error in on_presence_update: {e}\n")
-
-    async def process_voice_state_update(self, member, before, after):
+            self.bot.logger.log(f"Error in on_presence_update: {e}\n")
+    
+    # ---------------------------------------------------------
+    # 3. VOICE CHANNEL UPDATES (on_voice_state_update)
+    # ---------------------------------------------------------
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
         try:
-            self.db.insert_member_history(member, DiscordEvent.VOICE_UPDATE)
+            self.bot.db.insert_member_history(member, DiscordEvent.VOICE_UPDATE)
             message = ""
             member_name = member.name
 
@@ -195,13 +228,14 @@ class EventProcessor:
                 else: message += f"🎧 {member_name} UNDEAFENED their headset.\n"
 
             if message.strip():
-                self.logger.log(message)
+                self.bot.logger.log(message)
         except Exception as e:
-            self.logger.log(f"Error in on_voice_state_update: {e}\n")
+            self.bot.logger.log(f"Error in on_voice_state_update: {e}\n")
 
-    async def process_user_update(self, before, after):
+    @commands.Cog.listener()
+    async def on_user_update(self, before: discord.User, after: discord.User):
         try:
-            self.db.insert_user_history(after, DiscordEvent.USER_UPDATE)
+            self.bot.db.insert_user_history(after, DiscordEvent.USER_UPDATE)
             message = ""
             user_name = after.name
 
@@ -218,6 +252,9 @@ class EventProcessor:
                 message += f"🎌 {user_name} updated their global banner.\n"
 
             if message.strip():
-                self.logger.log(message)
+                self.bot.logger.log(message)
         except Exception as e:
-            self.logger.log(f"Error in on_user_update: {e}\n")
+            self.bot.logger.log(f"Error in on_user_update: {e}\n")
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(EventCog(bot))
