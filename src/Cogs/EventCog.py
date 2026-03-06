@@ -115,6 +115,13 @@ class EventCog(commands.Cog):
     async def on_presence_update(self, before: discord.Member, after: discord.Member):
         try:
             self.bot.db.insert_member_history(after, DiscordEvent.PRESENCE_UPDATE)
+
+            # --- TrackAndPlay / TrackAndForcePlay hook ---
+            if before.activities != after.activities:
+                music_cog = self.bot.get_cog("MusicCog")
+                if music_cog:
+                    await music_cog.handle_presence_for_tracking(after)
+
             message = ""
             member_name = after.name
 

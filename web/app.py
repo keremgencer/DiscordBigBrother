@@ -9,7 +9,7 @@ app = Flask(__name__)
 
 # The database is located in the parent folder's src/ directory
 # DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'src', 'database.db')
-DB_PATH = "D:/database.db"
+DB_PATH = "F:/Database/database.db"
 
 USE_DB_CACHING = True
 LOCAL_DB_PATH = os.path.join(os.path.dirname(__file__), "local_cache.db")

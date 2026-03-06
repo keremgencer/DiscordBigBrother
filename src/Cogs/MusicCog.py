@@ -91,6 +91,10 @@ class MusicCog(commands.Cog):
             'no_warnings': True,
             'default_search': 'ytsearch', # Allow direct search queries
         }
+        # Tracking mode state
+        self.tracking: dict[int, int] = {}                    # guild_id -> tracked user_id
+        self.last_tracked_track_id: dict[int, str | None] = {} # guild_id -> last Spotify track_id
+        self.tracking_mode: dict[int, str] = {}               # guild_id -> "play" or "forceplay"
 
     def get_queue(self, guild_id: int) -> MusicQueue:
         """Get or create a MusicQueue for a guild."""
@@ -631,12 +635,135 @@ class MusicCog(commands.Cog):
             mq.clear()
             mq.current = None
 
+            # Clear any active tracking mode
+            self.tracking.pop(guild.id, None)
+            self.last_tracked_track_id.pop(guild.id, None)
+            self.tracking_mode.pop(guild.id, None)
+
             channel_name = bot_channel.name
             await guild.voice_client.disconnect()
             await interaction.followup.send(f"👋 Disconnected from **{channel_name}**.")
         except Exception as e:
             self.bot.logger.log(f"Error in disconnect command: {e}\n")
             await interaction.followup.send(f"⚠️ Failed to disconnect: {e}")
+
+    # ----------------------------------------------------------
+    # Spotify Tracking Mode
+    # ----------------------------------------------------------
+
+    async def _activate_tracking(self, interaction: discord.Interaction, member: discord.Member, mode: str):
+        """Shared logic for /trackandplay and /trackandforceplay."""
+        await interaction.response.defer()
+        error_msg = await self.ensure_voice_state(interaction, auto_connect=True)
+        if error_msg:
+            return await interaction.followup.send(error_msg)
+
+        guild = interaction.guild
+        self.tracking[guild.id] = member.id
+        self.tracking_mode[guild.id] = mode
+        self.last_tracked_track_id[guild.id] = None  # Reset so current song triggers immediately
+
+        mode_label = "queue" if mode == "play" else "force-play"
+        await interaction.followup.send(
+            f"🎯 Tracking **{member.display_name}** ({mode_label} mode) — "
+            f"their Spotify songs will be {'queued to the front' if mode == 'play' else 'played immediately'}."
+        )
+
+        # Get the cached guild member — slash command member objects don't carry live activities
+        live_member = interaction.guild.get_member(member.id) or member
+
+        # If they're already on Spotify right now, trigger immediately
+        spotify_act = next((a for a in live_member.activities if isinstance(a, discord.Spotify)), None)
+        if spotify_act:
+            await self.handle_presence_for_tracking(live_member)
+
+    @app_commands.command(name="trackandplay", description="Track a member's Spotify and queue their songs automatically.")
+    @app_commands.describe(member="The member whose Spotify to track")
+    async def trackandplay(self, interaction: discord.Interaction, member: discord.Member):
+        try:
+            await self._activate_tracking(interaction, member, mode="play")
+        except Exception as e:
+            self.bot.logger.log(f"Error in trackandplay command: {e}\n")
+            await interaction.followup.send(f"⚠️ Failed to start tracking: {e}")
+
+    @app_commands.command(name="trackandforceplay", description="Track a member's Spotify and instantly force-play their songs.")
+    @app_commands.describe(member="The member whose Spotify to track")
+    async def trackandforceplay(self, interaction: discord.Interaction, member: discord.Member):
+        try:
+            await self._activate_tracking(interaction, member, mode="forceplay")
+        except Exception as e:
+            self.bot.logger.log(f"Error in trackandforceplay command: {e}\n")
+            await interaction.followup.send(f"⚠️ Failed to start tracking: {e}")
+
+    @app_commands.command(name="stoptracking", description="Stop tracking a member's Spotify.")
+    async def stoptracking(self, interaction: discord.Interaction):
+        try:
+            await interaction.response.defer()
+            guild = interaction.guild
+            if guild.id not in self.tracking:
+                return await interaction.followup.send("❌ No active tracking in this server.")
+
+            tracked_id = self.tracking.pop(guild.id)
+            self.last_tracked_track_id.pop(guild.id, None)
+            self.tracking_mode.pop(guild.id, None)
+
+            tracked_member = guild.get_member(tracked_id)
+            name = tracked_member.display_name if tracked_member else f"<user {tracked_id}>"
+            await interaction.followup.send(f"⏹️ Stopped tracking **{name}**.")
+        except Exception as e:
+            self.bot.logger.log(f"Error in stoptracking command: {e}\n")
+            await interaction.followup.send(f"⚠️ Failed to stop tracking: {e}")
+
+    async def handle_presence_for_tracking(self, member: discord.Member):
+        """Called from EventCog.on_presence_update to react to Spotify song changes."""
+        guild_id = member.guild.id
+        tracked_user_id = self.tracking.get(guild_id)
+
+        # Not tracking anyone, or this isn't the tracked member
+        if tracked_user_id != member.id:
+            return
+
+        # Find Spotify activity
+        spotify_act = next((a for a in member.activities if isinstance(a, discord.Spotify)), None)
+        if not spotify_act:
+            return  # Member stopped Spotify — keep the queue running
+
+        # Avoid re-triggering for the same song
+        if self.last_tracked_track_id.get(guild_id) == spotify_act.track_id:
+            return
+
+        self.last_tracked_track_id[guild_id] = spotify_act.track_id
+        mode = self.tracking_mode.get(guild_id, "forceplay")
+
+        guild = member.guild
+        if not guild.voice_client:
+            return  # Bot is no longer in a VC
+
+        search_query = f"{spotify_act.title} {', '.join(spotify_act.artists)}"
+        try:
+            track_info = await self._extract_track_info(search_query)
+            mq = self.get_queue(guild_id)
+            is_busy = guild.voice_client.is_playing() or guild.voice_client.is_paused()
+
+            if not is_busy:
+                # Both modes: play immediately when idle
+                self.play_track(guild.voice_client, track_info, guild_id)
+            elif mode == "forceplay":
+                # Interrupt the current track — no queue manipulation
+                self.skip_advance.add(guild_id)
+                guild.voice_client.stop()
+                await asyncio.sleep(0.3)
+                self.play_track(guild.voice_client, track_info, guild_id)
+            else:  # mode == "play"
+                # Add to the end of the queue
+                mq.add(track_info)
+
+            self.bot.logger.log(
+                f"[TrackAnd{'ForcePlay' if mode == 'forceplay' else 'Play'}] "
+                f"'{track_info['title']}' (tracked from {member.name}'s Spotify)\n"
+            )
+        except Exception as e:
+            self.bot.logger.log(f"[TrackAndPlay] Error handling tracked song: {e}\n")
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(MusicCog(bot))
