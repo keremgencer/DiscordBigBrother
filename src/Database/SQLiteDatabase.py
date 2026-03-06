@@ -6,6 +6,15 @@ from typing import Optional, Dict, Any
 
 from .IDatabase import IDatabase, DiscordEvent
 
+def _to_naive_utc(dt):
+    """Strip timezone info for safe SQLite storage."""
+    if dt is None: return None
+    if isinstance(dt, datetime):
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt
+    return dt
+
 class SQLiteDatabase(IDatabase):
     def __init__(self, db_path: str = "database.db"):
         self.db_path = db_path
@@ -389,7 +398,7 @@ class SQLiteDatabase(IDatabase):
         return False
 
     def insert_member_history(self, member: discord.Member, event_type: DiscordEvent):
-        timestamp = datetime.now(timezone.utc)
+        timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
         
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -408,10 +417,10 @@ class SQLiteDatabase(IDatabase):
             "nick": member.nick,
             "guild_avatar_id": avatar_id,
             "guild_banner_id": banner_id,
-            "joined_at": member.joined_at,
-            "premium_since": member.premium_since,
+            "joined_at": _to_naive_utc(member.joined_at),
+            "premium_since": _to_naive_utc(member.premium_since),
             "pending": member.pending,
-            "timed_out_until": member.timed_out_until,
+            "timed_out_until": _to_naive_utc(member.timed_out_until),
             "raw_status": str(member.status),
             "mobile_status": str(member.mobile_status),
             "desktop_status": str(member.desktop_status),
@@ -436,8 +445,8 @@ class SQLiteDatabase(IDatabase):
                 "spotify_album": None,
                 "spotify_track_id": None
             }
-            if hasattr(act, "start"): act_data["start"] = act.start
-            if hasattr(act, "end"): act_data["end"] = act.end
+            if hasattr(act, "start"): act_data["start"] = _to_naive_utc(act.start)
+            if hasattr(act, "end"): act_data["end"] = _to_naive_utc(act.end)
             
             if isinstance(act, discord.Spotify):
                 act_data["spotify_song_name"] = act.title
@@ -649,7 +658,7 @@ class SQLiteDatabase(IDatabase):
             return dict(row) if row else None
 
     def insert_user_history(self, user: discord.User, event_type: DiscordEvent):
-        timestamp = datetime.now(timezone.utc)
+        timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
         
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -664,7 +673,7 @@ class SQLiteDatabase(IDatabase):
                 "avatar_id": avatar_id,
                 "banner_id": banner_id,
                 "bot": 1 if getattr(user, "bot", False) else 0,
-                "created_at": getattr(user, "created_at", None)
+                "created_at": _to_naive_utc(getattr(user, "created_at", None))
             }
             
             last_data = self.get_user_last_instance(user.id)
